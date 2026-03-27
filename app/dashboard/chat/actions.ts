@@ -1,6 +1,6 @@
 "use server";
 
-import { AuditAction } from "@prisma/client";
+import { AuditAction, NotificationType } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -181,13 +181,30 @@ export async function sendChatMessageAction(formData: FormData) {
       select: { name: true },
     });
     const senderName = actor?.name ?? "Leader";
+    const messagePreview =
+      parsed.data.content.length > 160
+        ? `${parsed.data.content.slice(0, 157)}...`
+        : parsed.data.content;
+    const actionUrl = `/dashboard/chat?threadId=${threadId}`;
+
+    await db.notification.create({
+      data: {
+        churchId,
+        userId: peerId,
+        type: NotificationType.ALERT,
+        title: `New message from ${senderName}`,
+        message: messagePreview,
+        actionUrl,
+      },
+    });
+
     await sendPushToUsers({
       churchId,
       userIds: [peerId],
       payload: {
         title: senderName,
-        body: parsed.data.content.slice(0, 120),
-        url: `/dashboard/chat?threadId=${threadId}`,
+        body: messagePreview,
+        url: actionUrl,
         tag: `chat-${threadId}`,
       },
     });

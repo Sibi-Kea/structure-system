@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { GenerateRemindersButton } from "@/components/notifications/generate-reminders-button";
 import { NotificationActions } from "@/components/notifications/notification-actions";
+import { PushControls } from "@/components/notifications/push-controls";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { db } from "@/lib/db";
@@ -24,6 +25,8 @@ export default async function NotificationsPage() {
 
   return (
     <div className="space-y-6">
+      <PushControls />
+
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
