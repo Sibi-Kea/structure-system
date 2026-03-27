@@ -1,0 +1,15 @@
+{
+  "framework": "nextjs",
+  "installCommand": "npm ci",
+  "buildCommand": "npx prisma generate && npm run build",
+  "crons": [
+    {
+      "path": "/api/cron/notifications",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/ltv",
+      "schedule": "30 5 1 * *"
+    }
+  ]
+}

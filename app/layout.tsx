@@ -1,0 +1,65 @@
+import type { Metadata, Viewport } from "next";
+import { Manrope, Plus_Jakarta_Sans } from "next/font/google";
+
+import { PwaProvider } from "@/components/providers/pwa-provider";
+import { AuthSessionProvider } from "@/components/providers/session-provider";
+import { ToastProvider } from "@/components/providers/toast-provider";
+import "./globals.css";
+
+const manrope = Manrope({
+  variable: "--font-manrope",
+  subsets: ["latin"],
+});
+
+const plusJakarta = Plus_Jakarta_Sans({
+  variable: "--font-plus-jakarta",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "CRC Reporting",
+  description: "Enterprise-grade, multi-tenant Church Management System",
+  applicationName: "CRC Reporting",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "CRC Reporting",
+  },
+  icons: {
+    icon: [
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+      { url: "/icons/crc-logo.svg", type: "image/svg+xml" },
+    ],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+    shortcut: ["/icons/icon-192.png"],
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0d5a4c",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+};
+
+export default async function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="en">
+      <body className={`${manrope.variable} ${plusJakarta.variable} app-gradient antialiased`}>
+        <AuthSessionProvider>
+          {children}
+          <ToastProvider />
+          <PwaProvider />
+        </AuthSessionProvider>
+      </body>
+    </html>
+  );
+}

@@ -1,0 +1,237 @@
+"use server";
+
+import { AuditAction, Prisma } from "@prisma/client";
+import { revalidatePath } from "next/cache";
+
+import { logAudit } from "@/lib/audit";
+import { db } from "@/lib/db";
+import { REPORTING_DEADLINE_LABELS, getWeeklyReportingTimeline } from "@/lib/reporting-deadlines";
+import { hasPermission } from "@/lib/rbac";
+import { assertChurch, requireChurchContext } from "@/lib/tenant";
+import { homecellReportSchema, unlockReportSchema } from "@/lib/validations/homecell-report";
+
+function toNullableText(value?: string | null) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function toUniqueTextList(values: Array<string | null | undefined>) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+}
+
+export async function submitHomecellReportAction(payload: unknown) {
+  const context = await requireChurchContext();
+  if (!hasPermission(context.role, "homecell_reports:submit")) {
+    return { success: false, message: "You cannot submit homecell reports." };
+  }
+
+  const churchId = assertChurch(context.churchId);
+  const parsed = homecellReportSchema.safeParse(payload);
+  if (!parsed.success) {
+    return { success: false, message: "Invalid report payload." };
+  }
+
+  const data = parsed.data;
+  const rawWeekStartDate = new Date(data.weekStartDate);
+  if (Number.isNaN(rawWeekStartDate.getTime())) {
+    return { success: false, message: "Invalid report week dates." };
+  }
+  const timeline = getWeeklyReportingTimeline(rawWeekStartDate);
+  if (new Date() >= timeline.lockAt) {
+    return {
+      success: false,
+      message: `Reporting for this week is closed from ${REPORTING_DEADLINE_LABELS.lockAt}. Continue with the new week.`,
+    };
+  }
+
+  const presentCount = data.members.filter((member) => (member.homecellPresent ?? member.present ?? true)).length;
+  const absentCount = data.members.length - presentCount;
+
+  try {
+    const report = await db.homecellReport.create({
+      data: {
+        churchId,
+        homecellId: data.homecellId,
+        submittedById: context.userId,
+        weekStartDate: timeline.weekStartDate,
+        weekEndDate: timeline.weekEndDate,
+        isLocked: false,
+        totalMembers: data.members.length,
+        membersPresent: presentCount,
+        membersAbsent: absentCount,
+        visitors: data.visitors,
+        firstTimeVisitors: data.firstTimeVisitors,
+        prayerRequests: data.prayerRequests || null,
+        offeringCollected: data.offeringCollected ? new Prisma.Decimal(data.offeringCollected) : null,
+        memberItems: {
+          create: data.members.map((member) => {
+            const homecellPresent = member.homecellPresent ?? member.present ?? true;
+            const churchMorningPresent =
+              member.churchMorningPresent ??
+              member.churchPresent ??
+              member.homecellPresent ??
+              member.present ??
+              true;
+            const churchEveningPresent =
+              member.churchEveningPresent ??
+              member.churchPresent ??
+              member.homecellPresent ??
+              member.present ??
+              true;
+            const churchMorningAttendedLabels = churchMorningPresent
+              ? toUniqueTextList([
+                  ...(member.churchMorningAttendedLabels ?? []),
+                  member.churchMorningAttendedLabel,
+                  member.churchAttendedLabels?.[0],
+                ])
+              : [];
+            const churchMorningAttendedLabel = churchMorningAttendedLabels[0] ?? null;
+            const churchEveningAttendedLabel =
+              churchEveningPresent
+                ? toNullableText(member.churchEveningAttendedLabel) ??
+                  member.churchAttendedLabels?.find((label) => !churchMorningAttendedLabels.includes(label)) ??
+                  null
+                : null;
+            const churchMorningAbsenceReason = churchMorningPresent
+              ? null
+              : toNullableText(member.churchMorningAbsenceReason) ??
+                toNullableText(member.churchAbsenceReason) ??
+                toNullableText(member.absenceReason);
+            const churchMorningAbsenceNote = churchMorningPresent
+              ? null
+              : toNullableText(member.churchMorningAbsenceNote) ??
+                toNullableText(member.churchAbsenceNote) ??
+                toNullableText(member.absenceNote);
+            const churchEveningAbsenceReason = churchEveningPresent
+              ? null
+              : toNullableText(member.churchEveningAbsenceReason) ??
+                toNullableText(member.churchAbsenceReason) ??
+                toNullableText(member.absenceReason);
+            const churchEveningAbsenceNote = churchEveningPresent
+              ? null
+              : toNullableText(member.churchEveningAbsenceNote) ??
+                toNullableText(member.churchAbsenceNote) ??
+                toNullableText(member.absenceNote);
+            const churchAttendedLabels = toUniqueTextList([
+              ...churchMorningAttendedLabels,
+              churchEveningAttendedLabel,
+            ]);
+            const churchPresent = churchAttendedLabels.length > 0;
+            const churchAbsenceReason = churchPresent
+              ? null
+              : churchMorningAbsenceReason ?? churchEveningAbsenceReason;
+            const churchAbsenceNote = churchPresent ? null : churchMorningAbsenceNote ?? churchEveningAbsenceNote;
+
+            return {
+              homecellPresent,
+              homecellAbsenceReason: homecellPresent
+                ? null
+                : toNullableText(member.homecellAbsenceReason) ?? toNullableText(member.absenceReason),
+              homecellAbsenceNote: homecellPresent
+                ? null
+                : toNullableText(member.homecellAbsenceNote) ?? toNullableText(member.absenceNote),
+              churchMorningPresent,
+              churchMorningAttendedLabel,
+              churchMorningAbsenceReason,
+              churchMorningAbsenceNote,
+              churchEveningPresent,
+              churchEveningAttendedLabel,
+              churchEveningAbsenceReason,
+              churchEveningAbsenceNote,
+              churchPresent,
+              churchAttendedLabels,
+              churchAbsenceReason,
+              churchAbsenceNote,
+              churchId,
+              memberId: member.memberId ?? null,
+              memberName: member.memberName,
+              present: homecellPresent,
+              absenceReason: homecellPresent
+                ? null
+                : toNullableText(member.homecellAbsenceReason) ?? toNullableText(member.absenceReason),
+              absenceNote: homecellPresent
+                ? null
+                : toNullableText(member.homecellAbsenceNote) ?? toNullableText(member.absenceNote),
+            };
+          }),
+        },
+      },
+    });
+
+    await logAudit({
+      churchId,
+      actorUserId: context.userId,
+      actorRole: context.role,
+      action: AuditAction.CREATE,
+      entity: "HomecellReport",
+      entityId: report.id,
+    });
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      return { success: false, message: "Report already submitted for this week." };
+    }
+    throw error;
+  }
+
+  revalidatePath("/dashboard/homecells/reports");
+  return { success: true, message: "Weekly report submitted." };
+}
+
+export async function unlockHomecellReportAction(payload: unknown) {
+  const context = await requireChurchContext();
+  if (!hasPermission(context.role, "homecell_reports:unlock")) {
+    return { success: false, message: "You cannot unlock reports." };
+  }
+
+  const churchId = assertChurch(context.churchId);
+  const parsed = unlockReportSchema.safeParse(payload);
+  if (!parsed.success) {
+    return { success: false, message: "Invalid request." };
+  }
+
+  const report = await db.homecellReport.findFirst({
+    where: { id: parsed.data.reportId, churchId },
+    select: { id: true, weekStartDate: true },
+  });
+  if (!report) {
+    return { success: false, message: "Report not found." };
+  }
+
+  const timeline = getWeeklyReportingTimeline(report.weekStartDate);
+  if (new Date() >= timeline.lockAt) {
+    return {
+      success: false,
+      message: `This week is closed from ${REPORTING_DEADLINE_LABELS.lockAt}; unlocking is no longer allowed.`,
+    };
+  }
+
+  await db.homecellReport.update({
+    where: {
+      id: report.id,
+      churchId,
+    },
+    data: { isLocked: false },
+  });
+
+  await logAudit({
+    churchId,
+    actorUserId: context.userId,
+    actorRole: context.role,
+    action: AuditAction.UPDATE,
+    entity: "HomecellReport",
+    entityId: report.id,
+    payload: { isLocked: false },
+  });
+
+  revalidatePath("/dashboard/homecells/reports");
+  return { success: true, message: "Report unlocked for edits." };
+}
