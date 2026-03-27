@@ -1,6 +1,6 @@
 "use server";
 
-import { AuditAction, Role } from "@prisma/client";
+import { AuditAction, Prisma, Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -207,16 +207,19 @@ export async function createChurchAction(formData: FormData): Promise<ActionResu
     return { success: false, message: "You are not allowed to create churches." };
   }
 
+  const rawSlug = String(formData.get("slug") ?? "");
+  const normalizedSlug = rawSlug.trim().toLowerCase().replace(/\s+/g, "-");
+
   const parsed = churchSchema.safeParse({
     name: String(formData.get("name") ?? ""),
-    slug: String(formData.get("slug") ?? ""),
+    slug: normalizedSlug,
     email: String(formData.get("email") ?? ""),
     phone: String(formData.get("phone") ?? ""),
     address: String(formData.get("address") ?? ""),
     pastorUserId: "",
   });
   if (!parsed.success) {
-    return { success: false, message: "Church details are invalid." };
+    return { success: false, message: "Church details are invalid. Use a unique slug with lowercase letters, numbers, and hyphens only." };
   }
 
   try {
@@ -232,10 +235,11 @@ export async function createChurchAction(formData: FormData): Promise<ActionResu
     });
 
     // Keep super admin context consistent after first-time setup.
-    if (!context.churchId && context.role === Role.SUPER_ADMIN) {
+    if (context.role === Role.SUPER_ADMIN) {
       await db.user.updateMany({
         where: {
           id: context.userId,
+          role: Role.SUPER_ADMIN,
           churchId: null,
         },
         data: {
@@ -258,8 +262,11 @@ export async function createChurchAction(formData: FormData): Promise<ActionResu
     revalidatePath("/dashboard/membership");
     revalidatePath("/dashboard/members");
     return { success: true, message: "Church created." };
-  } catch {
-    return { success: false, message: "Church name or slug already exists." };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { success: false, message: "Church name or slug already exists." };
+    }
+    return { success: false, message: "Could not create church. Please try again." };
   }
 }
 
@@ -447,8 +454,11 @@ export async function createRegionAction(formData: FormData): Promise<ActionResu
     revalidatePath("/dashboard/admin/churches");
     revalidatePath("/dashboard/hierarchy");
     return { success: true, message: "Region created." };
-  } catch {
-    return { success: false, message: "Region already exists or leader is already assigned." };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { success: false, message: "Region already exists or leader is already assigned." };
+    }
+    return { success: false, message: "Could not create region. Please try again." };
   }
 }
 
@@ -508,8 +518,11 @@ export async function createZoneAction(formData: FormData): Promise<ActionResult
     revalidatePath("/dashboard/admin/churches");
     revalidatePath("/dashboard/hierarchy");
     return { success: true, message: "Zone created." };
-  } catch {
-    return { success: false, message: "Zone already exists or leader is already assigned." };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { success: false, message: "Zone already exists or leader is already assigned." };
+    }
+    return { success: false, message: "Could not create zone. Please try again." };
   }
 }
 
@@ -698,8 +711,11 @@ export async function createHomecellAction(formData: FormData): Promise<ActionRe
       };
     }
     return { success: true, message: "Homecell created." };
-  } catch {
-    return { success: false, message: "Homecell already exists or leader is already assigned." };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { success: false, message: "Homecell already exists or leader is already assigned." };
+    }
+    return { success: false, message: "Could not create homecell. Please try again." };
   }
 }
 
@@ -966,7 +982,10 @@ export async function assignStructureLeaderAction(formData: FormData): Promise<A
     revalidatePath("/dashboard/admin/churches");
     revalidatePath("/dashboard/hierarchy");
     return { success: true, message: "Structure leader assigned." };
-  } catch {
-    return { success: false, message: "Unable to assign structure leader." };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { success: false, message: "This leader is already assigned at this scope." };
+    }
+    return { success: false, message: "Unable to assign structure leader. Please try again." };
   }
 }

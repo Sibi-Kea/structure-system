@@ -1,4 +1,4 @@
-import { AuditAction } from "@prisma/client";
+import { AuditAction, Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -170,10 +170,16 @@ export async function POST(request: Request) {
       success: true,
       message: `Zone ${zone.name} created and pastor assigned.`,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return NextResponse.json(
+        { success: false, message: "Could not create zone. Name may already exist in that church." },
+        { status: 409 },
+      );
+    }
     return NextResponse.json(
-      { success: false, message: "Could not create zone. Name may already exist in that church." },
-      { status: 400 },
+      { success: false, message: "Could not create zone. Please try again." },
+      { status: 500 },
     );
   }
 }

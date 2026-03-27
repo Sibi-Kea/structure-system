@@ -1,4 +1,4 @@
-import { Role } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
 import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db";
@@ -33,22 +33,36 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json()) as Record<string, unknown>;
-  const parsed = churchSchema.safeParse(body);
+  const rawSlug = String(body.slug ?? "");
+  const normalizedSlug = rawSlug.trim().toLowerCase().replace(/\s+/g, "-");
+
+  const parsed = churchSchema.safeParse({
+    ...body,
+    slug: normalizedSlug,
+  });
   if (!parsed.success) {
     return NextResponse.json({ message: "Validation failed", errors: parsed.error.flatten() }, { status: 400 });
   }
 
-  const church = await db.church.create({
-    data: {
-      name: parsed.data.name,
-      slug: parsed.data.slug,
-      email: parsed.data.email || null,
-      phone: parsed.data.phone || null,
-      address: parsed.data.address || null,
-      pastorId: parsed.data.pastorUserId || null,
-      createdById: session.user.id,
-    },
-  });
+  let church;
+  try {
+    church = await db.church.create({
+      data: {
+        name: parsed.data.name,
+        slug: parsed.data.slug,
+        email: parsed.data.email || null,
+        phone: parsed.data.phone || null,
+        address: parsed.data.address || null,
+        pastorId: parsed.data.pastorUserId || null,
+        createdById: session.user.id,
+      },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return NextResponse.json({ message: "Church name or slug already exists." }, { status: 409 });
+    }
+    return NextResponse.json({ message: "Could not create church." }, { status: 500 });
+  }
 
   await db.user.updateMany({
     where: {

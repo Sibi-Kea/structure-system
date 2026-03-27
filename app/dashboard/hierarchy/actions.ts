@@ -1,6 +1,6 @@
 "use server";
 
-import { AuditAction, Role } from "@prisma/client";
+import { AuditAction, Prisma, Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -396,8 +396,11 @@ export async function addHierarchyNodeAction(formData: FormData): Promise<Action
       };
     }
     return { success: true, message: "Hierarchy node added." };
-  } catch {
-    return { success: false, message: "Could not add hierarchy node." };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { success: false, message: "This leader is already assigned in this structure scope." };
+    }
+    return { success: false, message: "Could not add hierarchy node. Please try again." };
   }
 }
 

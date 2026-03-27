@@ -1,6 +1,6 @@
 "use server";
 
-import { AuditAction } from "@prisma/client";
+import { AuditAction, Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
@@ -152,7 +152,10 @@ export async function assignZonePastorFromPopupAction(formData: FormData): Promi
     revalidatePath("/dashboard/admin/churches");
     revalidatePath("/dashboard/settings");
     return { success: true, message: `Zone ${zone.name} created and pastor assigned.` };
-  } catch {
-    return { success: false, message: "Could not create zone. Name may already exist in that church." };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { success: false, message: "Could not create zone. Name may already exist in that church." };
+    }
+    return { success: false, message: "Could not create zone. Please try again." };
   }
 }
