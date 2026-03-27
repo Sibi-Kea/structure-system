@@ -231,6 +231,19 @@ export async function createChurchAction(formData: FormData): Promise<ActionResu
       },
     });
 
+    // Keep super admin context consistent after first-time setup.
+    if (!context.churchId && context.role === Role.SUPER_ADMIN) {
+      await db.user.updateMany({
+        where: {
+          id: context.userId,
+          churchId: null,
+        },
+        data: {
+          churchId: church.id,
+        },
+      });
+    }
+
     await logAudit({
       churchId: church.id,
       actorUserId: context.userId,
@@ -242,6 +255,8 @@ export async function createChurchAction(formData: FormData): Promise<ActionResu
 
     revalidatePath("/dashboard/admin/churches");
     revalidatePath("/dashboard/settings");
+    revalidatePath("/dashboard/membership");
+    revalidatePath("/dashboard/members");
     return { success: true, message: "Church created." };
   } catch {
     return { success: false, message: "Church name or slug already exists." };

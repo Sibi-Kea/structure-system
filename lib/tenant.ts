@@ -57,7 +57,7 @@ export async function requireChurchContext() {
 
 export function assertChurch(churchId: string | null | undefined): string {
   if (!churchId) {
-    redirect("/dashboard/settings");
+    redirect("/dashboard/admin/churches");
   }
   return churchId;
 }

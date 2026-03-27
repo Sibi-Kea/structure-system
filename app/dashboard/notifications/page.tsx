@@ -6,6 +6,7 @@ import { PushControls } from "@/components/notifications/push-controls";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { db } from "@/lib/db";
+import { formatDateTimeInAppTimezone } from "@/lib/datetime";
 import { hasPermission } from "@/lib/rbac";
 import { assertChurch, requireChurchContext } from "@/lib/tenant";
 
@@ -57,7 +58,7 @@ export default async function NotificationsPage() {
                   </Badge>
                 </div>
                 <p className="text-sm text-slate-600">{notification.message}</p>
-                <p className="text-xs text-slate-500">{notification.createdAt.toLocaleString()}</p>
+                <p className="text-xs text-slate-500">{formatDateTimeInAppTimezone(notification.createdAt)}</p>
               </div>
               <div className="flex gap-2">
                 {notification.actionUrl ? (

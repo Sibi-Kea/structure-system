@@ -6,6 +6,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from "@/components/ui/table";
 import { buildAuditWhere, parseAuditFilters } from "@/lib/audit-query";
 import { db } from "@/lib/db";
+import { formatDateTimeInAppTimezone, getAppTimezone } from "@/lib/datetime";
 import { hasPermission } from "@/lib/rbac";
 import { assertChurch, requireChurchContext } from "@/lib/tenant";
 
@@ -128,6 +129,7 @@ export default async function AuditPage({
   const entities = entityGroups.map((row) => row.entity).filter((value): value is string => Boolean(value));
   const activeAction = filters.action ?? "";
   const activeActorRole = filters.actorRole ?? "";
+  const timezoneLabel = getAppTimezone();
   const exportQuery = buildQueryString({
     q: filters.q,
     action: activeAction,
@@ -246,7 +248,9 @@ export default async function AuditPage({
       </Card>
 
       <Card>
-        <CardDescription className="mb-3">Showing {logs.length} of {total} logs.</CardDescription>
+        <CardDescription className="mb-3">
+          Showing {logs.length} of {total} logs. Times shown in {timezoneLabel}.
+        </CardDescription>
         <div className="overflow-x-auto">
           <Table>
             <TableHead>
@@ -265,7 +269,7 @@ export default async function AuditPage({
                 const payloadText = formatPayload(log.payload as Prisma.JsonValue | null);
                 return (
                   <TableRow key={log.id}>
-                    <TableCell>{log.createdAt.toISOString().slice(0, 19).replace("T", " ")}</TableCell>
+                    <TableCell>{formatDateTimeInAppTimezone(log.createdAt)}</TableCell>
                     <TableCell>
                       <p className="font-medium text-slate-800">{log.actor.name}</p>
                       <p className="text-xs text-slate-500">{log.actor.email}</p>

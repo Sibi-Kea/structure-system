@@ -50,6 +50,17 @@ export async function POST(request: Request) {
     },
   });
 
+  await db.user.updateMany({
+    where: {
+      id: session.user.id,
+      role: Role.SUPER_ADMIN,
+      churchId: null,
+    },
+    data: {
+      churchId: church.id,
+    },
+  });
+
   return NextResponse.json(church, { status: 201 });
 }
 

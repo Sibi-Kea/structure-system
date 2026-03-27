@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Manrope, Plus_Jakarta_Sans } from "next/font/google";
 
+import { AppBootLoader } from "@/components/providers/app-boot-loader";
 import { PwaProvider } from "@/components/providers/pwa-provider";
 import { AuthSessionProvider } from "@/components/providers/session-provider";
 import { ToastProvider } from "@/components/providers/toast-provider";
@@ -55,6 +56,7 @@ export default async function RootLayout({
     <html lang="en">
       <body className={`${manrope.variable} ${plusJakarta.variable} app-gradient antialiased`}>
         <AuthSessionProvider>
+          <AppBootLoader />
           {children}
           <ToastProvider />
           <PwaProvider />
