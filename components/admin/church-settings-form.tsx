@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import {
   createChurchAction,
+  deleteChurchAction,
   updateChurchServiceLabelsAction,
 } from "@/app/dashboard/admin/churches/actions";
 import { Button } from "@/components/ui/button";
@@ -33,11 +34,15 @@ export function ChurchSettingsForm({ churches, currentChurchId }: ChurchSettings
   const router = useRouter();
   const [isCreating, startCreateTransition] = useTransition();
   const [isSavingLabels, startLabelsTransition] = useTransition();
+  const [isDeletingChurch, startDeleteTransition] = useTransition();
 
   const initialChurchId = currentChurchId ?? churches[0]?.id ?? "";
   const [selectedChurchId, setSelectedChurchId] = useState(initialChurchId);
+  const [deleteChurchId, setDeleteChurchId] = useState(initialChurchId);
+  const [deleteConfirmSlug, setDeleteConfirmSlug] = useState("");
 
   const churchById = useMemo(() => new Map(churches.map((church) => [church.id, church])), [churches]);
+  const deleteTargetChurch = churchById.get(deleteChurchId);
   const [morningLabelsText, setMorningLabelsText] = useState(
     (churchById.get(initialChurchId)?.attendanceMorningServiceLabels ?? []).join("\n"),
   );
@@ -70,8 +75,8 @@ export function ChurchSettingsForm({ churches, currentChurchId }: ChurchSettings
             });
           }}
         >
-          <Input name="name" placeholder="Church name (e.g. Bloem)" />
-          <Input name="slug" placeholder="church-slug (e.g. bloem)" />
+          <Input name="name" placeholder="Church name (e.g. Bloemfontein)" required minLength={3} />
+          <Input name="slug" placeholder="church-slug (optional, auto from name)" />
           <Input name="email" placeholder="church@email.com (optional)" />
           <Input name="phone" placeholder="Phone (optional)" />
           <Input name="address" placeholder="Address (optional)" />
@@ -157,6 +162,63 @@ export function ChurchSettingsForm({ churches, currentChurchId }: ChurchSettings
           </p>
           <Button type="submit" disabled={isSavingLabels || !selectedChurchId}>
             {isSavingLabels ? "Saving..." : "Save Service Groups"}
+          </Button>
+        </form>
+      </Card>
+
+      <Card className="xl:col-span-2">
+        <CardTitle>Delete Church</CardTitle>
+        <CardDescription className="mt-1">
+          Permanently remove a church and all related data. Staff users will be unlinked from that church.
+        </CardDescription>
+        <form
+          className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]"
+          onSubmit={(event) => {
+            event.preventDefault();
+            startDeleteTransition(async () => {
+              const formData = new FormData();
+              formData.set("churchId", deleteChurchId);
+              formData.set("confirmSlug", deleteConfirmSlug);
+              const result = await deleteChurchAction(formData);
+              if (!result.success) {
+                toast.error(result.message);
+                return;
+              }
+              toast.success(result.message);
+              setDeleteConfirmSlug("");
+              router.refresh();
+            });
+          }}
+        >
+          <Select
+            value={deleteChurchId}
+            onChange={(event) => {
+              setDeleteChurchId(event.target.value);
+              setDeleteConfirmSlug("");
+            }}
+          >
+            {churches.map((church) => (
+              <option key={church.id} value={church.id}>
+                {church.name} ({church.slug})
+              </option>
+            ))}
+          </Select>
+          <Input
+            value={deleteConfirmSlug}
+            onChange={(event) => setDeleteConfirmSlug(event.target.value)}
+            placeholder={
+              deleteTargetChurch
+                ? `Type slug to confirm: ${deleteTargetChurch.slug}`
+                : "Type church slug to confirm"
+            }
+            disabled={!deleteChurchId}
+          />
+          <Button
+            type="submit"
+            variant="danger"
+            disabled={!deleteChurchId || !deleteConfirmSlug || isDeletingChurch}
+          >
+            {isDeletingChurch ? "Deleting..." : "Delete Church"}
           </Button>
         </form>
       </Card>

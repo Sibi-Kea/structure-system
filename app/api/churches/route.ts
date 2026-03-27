@@ -9,6 +9,16 @@ function unauthorized() {
   return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 }
 
+function normalizeChurchSlug(value: string) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 export async function GET() {
   const session = await getServerAuthSession();
   if (!session?.user || session.user.role !== Role.SUPER_ADMIN) {
@@ -33,11 +43,13 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json()) as Record<string, unknown>;
+  const nameRaw = String(body.name ?? "");
   const rawSlug = String(body.slug ?? "");
-  const normalizedSlug = rawSlug.trim().toLowerCase().replace(/\s+/g, "-");
+  const normalizedSlug = normalizeChurchSlug(rawSlug) || normalizeChurchSlug(nameRaw);
 
   const parsed = churchSchema.safeParse({
     ...body,
+    name: nameRaw,
     slug: normalizedSlug,
   });
   if (!parsed.success) {

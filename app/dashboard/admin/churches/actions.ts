@@ -58,6 +58,11 @@ const zonePastorSchema = z.object({
   pastorMemberId: z.string().cuid().optional().or(z.literal("")),
 });
 
+const deleteChurchSchema = z.object({
+  churchId: z.string().cuid(),
+  confirmSlug: z.string().trim().min(1).max(80),
+});
+
 const STRUCTURE_ASSIGNABLE_ROLES = [
   Role.OVERSEER,
   Role.SUPERVISOR,
@@ -88,6 +93,16 @@ function toNullable(value: string | undefined) {
   if (!value) return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
+}
+
+function normalizeChurchSlug(value: string) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 function forbiddenResult() {
@@ -207,11 +222,12 @@ export async function createChurchAction(formData: FormData): Promise<ActionResu
     return { success: false, message: "You are not allowed to create churches." };
   }
 
+  const nameRaw = String(formData.get("name") ?? "");
   const rawSlug = String(formData.get("slug") ?? "");
-  const normalizedSlug = rawSlug.trim().toLowerCase().replace(/\s+/g, "-");
+  const normalizedSlug = normalizeChurchSlug(rawSlug) || normalizeChurchSlug(nameRaw);
 
   const parsed = churchSchema.safeParse({
-    name: String(formData.get("name") ?? ""),
+    name: nameRaw,
     slug: normalizedSlug,
     email: String(formData.get("email") ?? ""),
     phone: String(formData.get("phone") ?? ""),
@@ -219,7 +235,20 @@ export async function createChurchAction(formData: FormData): Promise<ActionResu
     pastorUserId: "",
   });
   if (!parsed.success) {
-    return { success: false, message: "Church details are invalid. Use a unique slug with lowercase letters, numbers, and hyphens only." };
+    const firstIssue = parsed.error.issues[0];
+    if (firstIssue?.path?.[0] === "name") {
+      return { success: false, message: "Church name must be at least 3 characters." };
+    }
+    if (firstIssue?.path?.[0] === "slug") {
+      return {
+        success: false,
+        message: "Church slug must be at least 3 characters (letters, numbers, hyphens).",
+      };
+    }
+    return {
+      success: false,
+      message: "Church details are invalid. Check name, slug, and email format.",
+    };
   }
 
   try {
@@ -268,6 +297,79 @@ export async function createChurchAction(formData: FormData): Promise<ActionResu
     }
     return { success: false, message: "Could not create church. Please try again." };
   }
+}
+
+export async function deleteChurchAction(formData: FormData): Promise<ActionResult> {
+  const context = await requireChurchContext();
+  if (!hasPermission(context.role, "church:create")) {
+    return { success: false, message: "You are not allowed to delete churches." };
+  }
+
+  const parsed = deleteChurchSchema.safeParse({
+    churchId: String(formData.get("churchId") ?? ""),
+    confirmSlug: String(formData.get("confirmSlug") ?? ""),
+  });
+  if (!parsed.success) {
+    return { success: false, message: "Delete request is invalid." };
+  }
+
+  const church = await db.church.findUnique({
+    where: { id: parsed.data.churchId },
+    select: { id: true, name: true, slug: true },
+  });
+  if (!church) {
+    return { success: false, message: "Selected church was not found." };
+  }
+
+  const confirmSlug = parsed.data.confirmSlug.trim().toLowerCase();
+  if (confirmSlug !== church.slug.toLowerCase()) {
+    return { success: false, message: `Type the exact slug (${church.slug}) to confirm deletion.` };
+  }
+
+  try {
+    await db.$transaction(async (tx) => {
+      // Church relation on audit logs is not cascading; clear links before delete.
+      await tx.auditLog.updateMany({
+        where: { churchId: church.id },
+        data: { churchId: null },
+      });
+
+      // User.churchId is non-cascading by design; unlink users before delete.
+      await tx.user.updateMany({
+        where: { churchId: church.id },
+        data: { churchId: null },
+      });
+
+      await tx.church.delete({
+        where: { id: church.id },
+      });
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+      return { success: false, message: "Church cannot be deleted due to remaining linked records." };
+    }
+    return { success: false, message: "Could not delete church. Please try again." };
+  }
+
+  await logAudit({
+    churchId: null,
+    actorUserId: context.userId,
+    actorRole: context.role,
+    action: AuditAction.DELETE,
+    entity: "Church",
+    entityId: church.id,
+    payload: {
+      deletedChurchName: church.name,
+      deletedChurchSlug: church.slug,
+    },
+  });
+
+  revalidatePath("/dashboard/admin/churches");
+  revalidatePath("/dashboard/settings");
+  revalidatePath("/dashboard/membership");
+  revalidatePath("/dashboard/members");
+  revalidatePath("/dashboard/hierarchy");
+  return { success: true, message: `Church ${church.name} deleted.` };
 }
 
 export async function updateChurchServiceLabelsAction(formData: FormData): Promise<ActionResult> {
