@@ -163,7 +163,7 @@ npm run dev
 
 - Profile photo uploads use Vercel Blob when `BLOB_READ_WRITE_TOKEN` is set.
 - Use HTTPS and secure session cookies in deployment.
-- Set a strong `NEXTAUTH_SECRET`.
+- Set a strong auth secret (`NEXTAUTH_SECRET` or `AUTH_SECRET`).
 - Set `CRON_SECRET` to secure cron endpoints.
 - Configure web push for installed-app background notifications:
   - `NEXT_PUBLIC_VAPID_PUBLIC_KEY`
@@ -179,7 +179,7 @@ npm run dev
 2. Set the project root to this folder (`Structure`) if your repo contains other folders.
 3. Add these environment variables in Vercel:
    - `DATABASE_URL`
-   - `NEXTAUTH_SECRET`
+   - `NEXTAUTH_SECRET` (or `AUTH_SECRET`)
    - `NEXTAUTH_URL` (use your Vercel production URL)
    - `CRON_SECRET` (used by Vercel Cron Authorization Bearer token)
    - `NEXT_PUBLIC_VAPID_PUBLIC_KEY`

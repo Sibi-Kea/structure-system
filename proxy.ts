@@ -5,6 +5,7 @@ import { getToken } from "next-auth/jwt";
 import { hasPermission, ROUTE_PERMISSIONS } from "@/lib/rbac";
 
 const PUBLIC_PATHS = ["/login"];
+const authSecret = process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET;
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -18,7 +19,7 @@ export async function proxy(request: NextRequest) {
   }
 
   const isPublicPath = PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
-  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+  const token = await getToken({ req: request, secret: authSecret });
   const roleFromToken = token?.role;
   const hasValidRole =
     typeof roleFromToken === "string" &&

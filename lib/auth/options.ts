@@ -7,6 +7,8 @@ import { z } from "zod";
 
 import { db } from "@/lib/db";
 
+const authSecret = process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET;
+
 const credentialsSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
@@ -115,5 +117,5 @@ export const authOptions: NextAuthOptions = {
       );
     },
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: authSecret,
 };
