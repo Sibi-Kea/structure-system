@@ -1,13 +1,13 @@
 "use server";
 
 import { AuditAction, Prisma, Role } from "@prisma/client";
-import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { canCreateAttendanceService } from "@/lib/attendance-scope";
 import { logAudit } from "@/lib/audit";
 import { db } from "@/lib/db";
+import { ensureMemberLeaderUser } from "@/lib/leader-account";
 import { hasPermission } from "@/lib/rbac";
 import { assertChurch, requireChurchContext } from "@/lib/tenant";
 import { churchSchema, churchServiceGroupsSchema, churchServiceLabelsSchema } from "@/lib/validations/church";
@@ -164,55 +164,25 @@ async function resolveHomecellLeaderUser(input: {
 
   const member = await db.member.findFirst({
     where: { id: leaderMemberId ?? "", churchId, isDeleted: false },
-    select: { id: true, firstName: true, lastName: true, email: true },
+    select: { id: true },
   });
   if (!member) {
     return { error: "Selected leader member is invalid." };
   }
 
-  const generatedEmail = `member.${member.id.slice(-10)}@churchflow.local`;
-  const memberEmail = (member.email?.trim().toLowerCase() || generatedEmail).toLowerCase();
-
-  const existingUser = await db.user.findUnique({
-    where: { email: memberEmail },
-    select: { id: true, churchId: true, role: true },
+  const ensuredUser = await ensureMemberLeaderUser({
+    churchId,
+    memberId: member.id,
+    role: Role.HOMECELL_LEADER,
   });
-
-  if (existingUser && existingUser.churchId && existingUser.churchId !== churchId) {
-    return { error: "Selected member email belongs to another church user." };
+  if ("error" in ensuredUser) {
+    return { error: ensuredUser.error };
   }
-
-  if (existingUser) {
-    await db.user.update({
-      where: { id: existingUser.id },
-      data: {
-        churchId,
-        role: Role.HOMECELL_LEADER,
-        isActive: true,
-        name: `${member.firstName} ${member.lastName}`.trim(),
-      },
-    });
-
-    return { userId: existingUser.id, promotedMemberId: member.id };
-  }
-
-  const passwordHash = await bcrypt.hash("Password123!", 12);
-  const createdUser = await db.user.create({
-    data: {
-      name: `${member.firstName} ${member.lastName}`.trim(),
-      email: memberEmail,
-      passwordHash,
-      role: Role.HOMECELL_LEADER,
-      churchId,
-      isActive: true,
-    },
-    select: { id: true },
-  });
 
   return {
-    userId: createdUser.id,
+    userId: ensuredUser.userId,
     promotedMemberId: member.id,
-    createdEmail: memberEmail,
+    createdEmail: ensuredUser.createdEmail,
   };
 }
 
@@ -597,6 +567,26 @@ export async function createZoneAction(formData: FormData): Promise<ActionResult
     }
   }
 
+  const existingZone = await db.zone.findFirst({
+    where: { churchId, name: parsed.data.name },
+    select: { id: true },
+  });
+  if (existingZone) {
+    return { success: false, message: "Zone already exists or leader is already assigned." };
+  }
+
+  const pastorLoginResult = pastorMemberId
+    ? await ensureMemberLeaderUser({
+        churchId,
+        memberId: pastorMemberId,
+        role: Role.PASTOR,
+      })
+    : null;
+
+  if (pastorLoginResult && "error" in pastorLoginResult) {
+    return { success: false, message: pastorLoginResult.error };
+  }
+
   try {
     const zone = await db.zone.create({
       data: {
@@ -619,6 +609,15 @@ export async function createZoneAction(formData: FormData): Promise<ActionResult
 
     revalidatePath("/dashboard/admin/churches");
     revalidatePath("/dashboard/hierarchy");
+    revalidatePath("/dashboard/pastors");
+
+    if (pastorLoginResult?.createdEmail) {
+      return {
+        success: true,
+        message: `Zone created. Pastor login: ${pastorLoginResult.createdEmail} (Password123!).`,
+      };
+    }
+
     return { success: true, message: "Zone created." };
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
@@ -649,6 +648,15 @@ export async function assignZonePastorAction(formData: FormData): Promise<Action
     return { success: false, message: "Selected zone is invalid." };
   }
 
+  let pastorLoginResult:
+    | {
+        userId: string;
+        email: string;
+        created: boolean;
+        createdEmail?: string;
+      }
+    | null = null;
+
   if (pastorMemberId) {
     const pastorMember = await db.member.findFirst({
       where: { id: pastorMemberId, churchId, isDeleted: false },
@@ -661,6 +669,16 @@ export async function assignZonePastorAction(formData: FormData): Promise<Action
     if (zone.pastorMemberId && zone.pastorMemberId !== pastorMemberId) {
       return { success: false, message: "Selected zone already has a pastor assigned. Clear it first." };
     }
+
+    const ensuredPastorLogin = await ensureMemberLeaderUser({
+      churchId,
+      memberId: pastorMemberId,
+      role: Role.PASTOR,
+    });
+    if ("error" in ensuredPastorLogin) {
+      return { success: false, message: ensuredPastorLogin.error };
+    }
+    pastorLoginResult = ensuredPastorLogin;
 
     const updated = await db.zone.updateMany({
       where: {
@@ -693,6 +711,15 @@ export async function assignZonePastorAction(formData: FormData): Promise<Action
   revalidatePath("/dashboard/admin/churches");
   revalidatePath("/dashboard/settings");
   revalidatePath("/dashboard/hierarchy");
+  revalidatePath("/dashboard/pastors");
+
+  if (pastorLoginResult?.createdEmail) {
+    return {
+      success: true,
+      message: `Zone pastor assigned. Login: ${pastorLoginResult.createdEmail} (Password123!).`,
+    };
+  }
+
   return { success: true, message: pastorMemberId ? "Zone pastor assigned." : "Zone pastor cleared." };
 }
 

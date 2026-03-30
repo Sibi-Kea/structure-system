@@ -34,6 +34,12 @@ type MemberDetails = {
   emergencyContactPhone?: string | null;
   homecell: { name: string } | null;
   department: { name: string } | null;
+  leaderLogin?: {
+    hasLogin: boolean;
+    email: string | null;
+    role: string | null;
+    defaultPassword: string;
+  } | null;
 };
 
 function formatDate(value: string | null | undefined) {
@@ -220,6 +226,28 @@ export function MemberProfilePopup({
                           </p>
                         )}
                       </div>
+
+                      {member.leaderLogin ? (
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
+                          <p className="font-semibold text-slate-900">Leader Login</p>
+                          {member.leaderLogin.hasLogin ? (
+                            <div className="mt-2 space-y-1 text-slate-700">
+                              <p>
+                                <span className="font-medium text-slate-900">Email:</span> {member.leaderLogin.email ?? "-"}
+                              </p>
+                              <p>
+                                <span className="font-medium text-slate-900">Role:</span> {member.leaderLogin.role ?? "-"}
+                              </p>
+                              <p>
+                                <span className="font-medium text-slate-900">Default password:</span>{" "}
+                                {member.leaderLogin.defaultPassword}
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="mt-2 text-slate-700">Leader assignment exists but login user is missing.</p>
+                          )}
+                        </div>
+                      ) : null}
                     </div>
                   ) : (
                     <p className="text-sm text-slate-600">No member data found.</p>

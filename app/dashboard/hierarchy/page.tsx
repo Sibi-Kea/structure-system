@@ -2,7 +2,9 @@ import { Role } from "@prisma/client";
 import { startOfMonth, subDays } from "date-fns";
 
 import { HierarchyVisual } from "@/components/hierarchy/hierarchy-visual";
+import { HomecellManagementPanel } from "@/components/members/homecell-management-panel";
 import { db } from "@/lib/db";
+import { hasPermission } from "@/lib/rbac";
 import { assertChurch, requireChurchContext } from "@/lib/tenant";
 
 function uniqueNames(names: Array<string | null | undefined>) {
@@ -26,6 +28,7 @@ const structureRoles = new Set<Role>([
 export default async function HierarchyPage() {
   const context = await requireChurchContext();
   const churchId = assertChurch(context.churchId);
+  const canManageStructure = hasPermission(context.role, "members:manage");
 
   const [
     loggedInUser,
@@ -33,6 +36,11 @@ export default async function HierarchyPage() {
     attendanceEntries,
     growthMembers,
     structureLeaders,
+    leaders,
+    regions,
+    zonesForSetup,
+    homecellsForSetup,
+    membersForSetup,
   ] = await Promise.all([
     db.user.findUnique({
       where: { id: context.userId },
@@ -113,6 +121,48 @@ export default async function HierarchyPage() {
       },
       orderBy: [{ role: "asc" }, { createdAt: "asc" }],
     }),
+    canManageStructure
+      ? db.user.findMany({
+          where: {
+            churchId,
+            isActive: true,
+            role: {
+              in: [Role.PASTOR, Role.OVERSEER, Role.SUPERVISOR, Role.COORDINATOR, Role.HOMECELL_LEADER],
+            },
+          },
+          select: { id: true, name: true, role: true },
+          orderBy: { name: "asc" },
+        })
+      : Promise.resolve([]),
+    canManageStructure
+      ? db.region.findMany({
+          where: { churchId },
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        })
+      : Promise.resolve([]),
+    canManageStructure
+      ? db.zone.findMany({
+          where: { churchId },
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        })
+      : Promise.resolve([]),
+    canManageStructure
+      ? db.homecell.findMany({
+          where: { churchId },
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        })
+      : Promise.resolve([]),
+    canManageStructure
+      ? db.member.findMany({
+          where: { churchId, isDeleted: false },
+          select: { id: true, firstName: true, lastName: true },
+          orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+          take: 1000,
+        })
+      : Promise.resolve([]),
   ]);
 
   if (!church) {
@@ -235,22 +285,37 @@ export default async function HierarchyPage() {
   );
 
   return (
-    <HierarchyVisual
-      churchName={church.name}
-      pastorName={
-        church.pastor?.name ??
-        (context.role === Role.PASTOR ? (loggedInUser?.name ?? "Unassigned Pastor") : "Unassigned Pastor")
-      }
-      leadershipMetrics={{
-        loggedInName: loggedInUser?.name ?? "Unknown User",
-        loggedInRole: loggedInUser?.role ?? context.role,
-        totalHomecells,
-        totalLeaders: leaderIds.size,
-        totalRegions: church.regions.length,
-        totalZones,
-      }}
-      summary={summary}
-      zones={zones}
-    />
+    <div className="space-y-6">
+      {canManageStructure ? (
+        <HomecellManagementPanel
+          leaders={leaders.map((leader) => ({ id: leader.id, name: leader.name, role: leader.role }))}
+          regions={regions}
+          zones={zonesForSetup}
+          homecells={homecellsForSetup}
+          members={membersForSetup.map((member) => ({
+            id: member.id,
+            name: `${member.firstName} ${member.lastName}`.trim(),
+          }))}
+        />
+      ) : null}
+
+      <HierarchyVisual
+        churchName={church.name}
+        pastorName={
+          church.pastor?.name ??
+          (context.role === Role.PASTOR ? (loggedInUser?.name ?? "Unassigned Pastor") : "Unassigned Pastor")
+        }
+        leadershipMetrics={{
+          loggedInName: loggedInUser?.name ?? "Unknown User",
+          loggedInRole: loggedInUser?.role ?? context.role,
+          totalHomecells,
+          totalLeaders: leaderIds.size,
+          totalRegions: church.regions.length,
+          totalZones,
+        }}
+        summary={summary}
+        zones={zones}
+      />
+    </div>
   );
 }

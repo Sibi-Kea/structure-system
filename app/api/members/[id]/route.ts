@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { logAudit } from "@/lib/audit";
 import { getServerAuthSession } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { getMemberLeaderResetContext } from "@/lib/leader-account";
 import { hasLimitedMemberView } from "@/lib/member-visibility";
 import { resolveMemberScope } from "@/lib/member-scope";
 import { hasPermission } from "@/lib/rbac";
@@ -67,9 +68,26 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     return NextResponse.json({ message: "Not found" }, { status: 404 });
   }
 
+  const canViewLeaderCredentials = hasPermission(session.user.role, "members:manage");
+  const leaderLoginContext = canViewLeaderCredentials
+    ? await getMemberLeaderResetContext({
+        churchId: session.user.churchId,
+        memberId: member.id,
+        memberEmail: member.email,
+      })
+    : null;
+
   return NextResponse.json({
     ...member,
     viewMode: limitedMemberView ? "LIMITED" : "FULL",
+    leaderLogin: leaderLoginContext?.hasLeadershipAssignment
+      ? {
+          hasLogin: Boolean(leaderLoginContext.user),
+          email: leaderLoginContext.user?.email ?? null,
+          role: leaderLoginContext.user?.role ?? null,
+          defaultPassword: "Password123!",
+        }
+      : null,
   });
 }
 

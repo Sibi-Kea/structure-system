@@ -1,11 +1,12 @@
 "use server";
 
-import { AuditAction, Prisma } from "@prisma/client";
+import { AuditAction, Prisma, Role } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { logAudit } from "@/lib/audit";
 import { db } from "@/lib/db";
+import { ensureMemberLeaderUser } from "@/lib/leader-account";
 import { hasPermission } from "@/lib/rbac";
 import { assertChurch, requireChurchContext } from "@/lib/tenant";
 
@@ -92,6 +93,15 @@ export async function assignZonePastorFromPopupAction(formData: FormData): Promi
       return { success: false, message: "Selected zone is invalid for the selected church." };
     }
 
+    const pastorLoginResult = await ensureMemberLeaderUser({
+      churchId: targetChurchId,
+      memberId: member.id,
+      role: Role.PASTOR,
+    });
+    if ("error" in pastorLoginResult) {
+      return { success: false, message: pastorLoginResult.error };
+    }
+
     const updated = await db.zone.updateMany({
       where: {
         id: zone.id,
@@ -121,10 +131,35 @@ export async function assignZonePastorFromPopupAction(formData: FormData): Promi
     revalidatePath("/dashboard/pastors");
     revalidatePath("/dashboard/admin/churches");
     revalidatePath("/dashboard/settings");
+
+    if (pastorLoginResult.createdEmail) {
+      return {
+        success: true,
+        message: `${member.firstName} ${member.lastName} assigned to ${zone.name}. Login: ${pastorLoginResult.createdEmail} (Password123!).`,
+      };
+    }
+
     return { success: true, message: `${member.firstName} ${member.lastName} assigned to ${zone.name}.` };
   }
 
   const newZoneName = (parsed.data.newZoneName ?? "").trim();
+  const existingZone = await db.zone.findFirst({
+    where: { churchId: targetChurchId, name: newZoneName },
+    select: { id: true },
+  });
+  if (existingZone) {
+    return { success: false, message: "Could not create zone. Name may already exist in that church." };
+  }
+
+  const pastorLoginResult = await ensureMemberLeaderUser({
+    churchId: targetChurchId,
+    memberId: member.id,
+    role: Role.PASTOR,
+  });
+  if ("error" in pastorLoginResult) {
+    return { success: false, message: pastorLoginResult.error };
+  }
+
   try {
     const zone = await db.zone.create({
       data: {
@@ -151,6 +186,14 @@ export async function assignZonePastorFromPopupAction(formData: FormData): Promi
     revalidatePath("/dashboard/pastors");
     revalidatePath("/dashboard/admin/churches");
     revalidatePath("/dashboard/settings");
+
+    if (pastorLoginResult.createdEmail) {
+      return {
+        success: true,
+        message: `Zone ${zone.name} created and pastor assigned. Login: ${pastorLoginResult.createdEmail} (Password123!).`,
+      };
+    }
+
     return { success: true, message: `Zone ${zone.name} created and pastor assigned.` };
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {

@@ -1,4 +1,4 @@
-import { AuditAction, Prisma } from "@prisma/client";
+import { AuditAction, Prisma, Role } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -6,6 +6,7 @@ import { z } from "zod";
 import { logAudit } from "@/lib/audit";
 import { getServerAuthSession } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { ensureMemberLeaderUser } from "@/lib/leader-account";
 import { hasPermission } from "@/lib/rbac";
 
 const payloadSchema = z
@@ -101,6 +102,15 @@ export async function POST(request: Request) {
       );
     }
 
+    const pastorLoginResult = await ensureMemberLeaderUser({
+      churchId: targetChurchId,
+      memberId: member.id,
+      role: Role.PASTOR,
+    });
+    if ("error" in pastorLoginResult) {
+      return NextResponse.json({ success: false, message: pastorLoginResult.error }, { status: 400 });
+    }
+
     const updated = await db.zone.updateMany({
       where: {
         id: zone.id,
@@ -133,6 +143,14 @@ export async function POST(request: Request) {
     revalidatePath("/dashboard/pastors");
     revalidatePath("/dashboard/admin/churches");
     revalidatePath("/dashboard/settings");
+
+    if (pastorLoginResult.createdEmail) {
+      return NextResponse.json({
+        success: true,
+        message: `${member.firstName} ${member.lastName} assigned to ${zone.name}. Login: ${pastorLoginResult.createdEmail} (Password123!).`,
+      });
+    }
+
     return NextResponse.json({
       success: true,
       message: `${member.firstName} ${member.lastName} assigned to ${zone.name}.`,
@@ -140,6 +158,26 @@ export async function POST(request: Request) {
   }
 
   const newZoneName = (parsed.data.newZoneName ?? "").trim();
+  const existingZone = await db.zone.findFirst({
+    where: { churchId: targetChurchId, name: newZoneName },
+    select: { id: true },
+  });
+  if (existingZone) {
+    return NextResponse.json(
+      { success: false, message: "Could not create zone. Name may already exist in that church." },
+      { status: 409 },
+    );
+  }
+
+  const pastorLoginResult = await ensureMemberLeaderUser({
+    churchId: targetChurchId,
+    memberId: member.id,
+    role: Role.PASTOR,
+  });
+  if ("error" in pastorLoginResult) {
+    return NextResponse.json({ success: false, message: pastorLoginResult.error }, { status: 400 });
+  }
+
   try {
     const zone = await db.zone.create({
       data: {
@@ -166,6 +204,14 @@ export async function POST(request: Request) {
     revalidatePath("/dashboard/pastors");
     revalidatePath("/dashboard/admin/churches");
     revalidatePath("/dashboard/settings");
+
+    if (pastorLoginResult.createdEmail) {
+      return NextResponse.json({
+        success: true,
+        message: `Zone ${zone.name} created and pastor assigned. Login: ${pastorLoginResult.createdEmail} (Password123!).`,
+      });
+    }
+
     return NextResponse.json({
       success: true,
       message: `Zone ${zone.name} created and pastor assigned.`,

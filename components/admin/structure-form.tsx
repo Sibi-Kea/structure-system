@@ -77,6 +77,9 @@ export function StructureForm({
   const [leaderRegionId, setLeaderRegionId] = useState("");
   const [leaderZoneId, setLeaderZoneId] = useState("");
   const [leaderHomecellId, setLeaderHomecellId] = useState("");
+  const [homecellLeaderSource, setHomecellLeaderSource] = useState<"MEMBER" | "USER">("MEMBER");
+  const [homecellLeaderUserId, setHomecellLeaderUserId] = useState("");
+  const [homecellLeaderMemberId, setHomecellLeaderMemberId] = useState("");
 
   const validStructureLeaders = useMemo(
     () =>
@@ -269,9 +272,19 @@ export function StructureForm({
           onSubmit={(event) => {
             event.preventDefault();
             const formData = new FormData(event.currentTarget);
+            if (homecellLeaderSource === "USER") {
+              formData.set("leaderId", homecellLeaderUserId);
+              formData.set("leaderMemberId", "");
+            } else {
+              formData.set("leaderMemberId", homecellLeaderMemberId);
+              formData.set("leaderId", "");
+            }
             startTransition(async () => {
               await runAction(() => createHomecellAction(formData), () => {
                 event.currentTarget.reset();
+                setHomecellLeaderSource("MEMBER");
+                setHomecellLeaderUserId("");
+                setHomecellLeaderMemberId("");
                 router.refresh();
               });
             });
@@ -294,14 +307,32 @@ export function StructureForm({
               </option>
             ))}
           </Select>
-          <Select name="leaderId" defaultValue="">
-            <option value="">No leader yet</option>
-            {leaders.map((leader) => (
-              <option key={leader.id} value={leader.id}>
-                {leader.name} ({leader.role})
-              </option>
-            ))}
+          <Select
+            value={homecellLeaderSource}
+            onChange={(event) => setHomecellLeaderSource(event.target.value as "MEMBER" | "USER")}
+          >
+            <option value="MEMBER">Leader from member list</option>
+            <option value="USER">Leader from existing users</option>
           </Select>
+          {homecellLeaderSource === "USER" ? (
+            <Select value={homecellLeaderUserId} onChange={(event) => setHomecellLeaderUserId(event.target.value)}>
+              <option value="">No leader yet</option>
+              {leaders.map((leader) => (
+                <option key={leader.id} value={leader.id}>
+                  {leader.name} ({leader.role})
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <Select value={homecellLeaderMemberId} onChange={(event) => setHomecellLeaderMemberId(event.target.value)}>
+              <option value="">No leader yet</option>
+              {members.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.name}
+                </option>
+              ))}
+            </Select>
+          )}
           <div className="grid gap-3 md:grid-cols-2">
             <Input name="meetingDay" placeholder="Meeting day" />
             <Input name="meetingTime" placeholder="Meeting time (e.g. 18:30)" />

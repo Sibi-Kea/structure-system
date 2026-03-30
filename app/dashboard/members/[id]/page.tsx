@@ -8,6 +8,7 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from "@/components/ui/table";
 import { Tabs } from "@/components/ui/tabs";
 import { db } from "@/lib/db";
+import { getMemberLeaderResetContext } from "@/lib/leader-account";
 import { hasLimitedMemberView } from "@/lib/member-visibility";
 import { resolveMemberScope } from "@/lib/member-scope";
 import { hasPermission } from "@/lib/rbac";
@@ -94,6 +95,13 @@ export default async function MemberProfilePage({ params }: { params: Promise<{ 
 
   const limitedMemberView = hasLimitedMemberView(context.role);
   const canManage = hasPermission(context.role, "members:manage") && !limitedMemberView;
+  const leaderLoginContext = canManage
+    ? await getMemberLeaderResetContext({
+        churchId,
+        memberId: member.id,
+        memberEmail: member.email,
+      })
+    : null;
   const canViewNotes = hasPermission(context.role, "members:notes") && !limitedMemberView;
   const attendancePresent = member.attendanceEntries.filter(
     (entry) => entry.status === "PRESENT" || entry.status === "ONLINE",
@@ -193,6 +201,16 @@ export default async function MemberProfilePage({ params }: { params: Promise<{ 
               <p>Notes: {member.involvementNotes ?? "-"}</p>
             </div>
           </Card>
+          {leaderLoginContext?.hasLeadershipAssignment ? (
+            <Card>
+              <CardTitle>Leader Login</CardTitle>
+              <div className="mt-3 space-y-2 text-sm text-slate-600">
+                <p>Email: {leaderLoginContext.user?.email ?? "-"}</p>
+                <p>Role: {leaderLoginContext.user?.role ?? "-"}</p>
+                <p>Default password: Password123!</p>
+              </div>
+            </Card>
+          ) : null}
         </div>
       ),
     },

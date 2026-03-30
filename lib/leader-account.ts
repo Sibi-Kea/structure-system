@@ -1,4 +1,5 @@
 import { Role } from "@prisma/client";
+import bcrypt from "bcryptjs";
 
 import { db } from "@/lib/db";
 
@@ -18,6 +19,95 @@ function normalizeEmail(value: string | null | undefined) {
 
 export function generatedLeaderEmailForMemberId(memberId: string) {
   return `member.${memberId.slice(-10)}@churchflow.local`.toLowerCase();
+}
+
+type EnsureMemberLeaderUserInput = {
+  churchId: string;
+  memberId: string;
+  role: Role;
+};
+
+type EnsureMemberLeaderUserResult =
+  | {
+      userId: string;
+      email: string;
+      created: boolean;
+      createdEmail?: string;
+    }
+  | { error: string };
+
+export async function ensureMemberLeaderUser(
+  input: EnsureMemberLeaderUserInput,
+): Promise<EnsureMemberLeaderUserResult> {
+  const member = await db.member.findFirst({
+    where: {
+      id: input.memberId,
+      churchId: input.churchId,
+      isDeleted: false,
+    },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+    },
+  });
+
+  if (!member) {
+    return { error: "Selected member is invalid." };
+  }
+
+  const generatedEmail = generatedLeaderEmailForMemberId(member.id);
+  const memberEmail = (normalizeEmail(member.email) ?? generatedEmail).toLowerCase();
+
+  const existingUser = await db.user.findUnique({
+    where: { email: memberEmail },
+    select: { id: true, churchId: true },
+  });
+
+  if (existingUser && existingUser.churchId && existingUser.churchId !== input.churchId) {
+    return { error: "Selected member email belongs to another church user." };
+  }
+
+  const name = `${member.firstName} ${member.lastName}`.trim();
+
+  if (existingUser) {
+    await db.user.update({
+      where: { id: existingUser.id },
+      data: {
+        churchId: input.churchId,
+        role: input.role,
+        isActive: true,
+        name,
+      },
+    });
+
+    return {
+      userId: existingUser.id,
+      email: memberEmail,
+      created: false,
+    };
+  }
+
+  const passwordHash = await bcrypt.hash("Password123!", 12);
+  const createdUser = await db.user.create({
+    data: {
+      name,
+      email: memberEmail,
+      passwordHash,
+      role: input.role,
+      churchId: input.churchId,
+      isActive: true,
+    },
+    select: { id: true },
+  });
+
+  return {
+    userId: createdUser.id,
+    email: memberEmail,
+    created: true,
+    createdEmail: memberEmail,
+  };
 }
 
 export async function getMemberLeaderResetContext(input: {
@@ -111,4 +201,3 @@ export async function getMemberLeaderResetContext(input: {
     },
   };
 }
-
