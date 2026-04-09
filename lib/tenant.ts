@@ -12,7 +12,7 @@ export async function requireAuth() {
 
   const dbUser = await db.user.findUnique({
     where: { id: session.user.id },
-    select: { id: true, role: true, churchId: true, isActive: true },
+    select: { id: true, role: true, churchId: true, isActive: true, passwordChangeRequired: true },
   });
   if (!dbUser || !dbUser.isActive) {
     redirect("/login");
@@ -20,6 +20,7 @@ export async function requireAuth() {
 
   session.user.role = dbUser.role;
   session.user.churchId = dbUser.churchId;
+  session.user.passwordChangeRequired = dbUser.passwordChangeRequired;
   return session;
 }
 

@@ -7,12 +7,14 @@ declare module "next-auth" {
       id: string;
       role: Role;
       churchId: string | null;
+      passwordChangeRequired: boolean;
     };
   }
 
   interface User {
     role: Role;
     churchId: string | null;
+    passwordChangeRequired?: boolean;
   }
 }
 
@@ -20,5 +22,6 @@ declare module "next-auth/jwt" {
   interface JWT {
     role?: Role;
     churchId?: string | null;
+    passwordChangeRequired?: boolean;
   }
 }

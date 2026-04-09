@@ -14,6 +14,7 @@ import { resolveMemberScope } from "@/lib/member-scope";
 import { hasPermission } from "@/lib/rbac";
 import { assertChurch, requireChurchContext } from "@/lib/tenant";
 import { formatCurrency, formatPercent } from "@/lib/utils";
+import { Role } from "@prisma/client";
 
 export default async function MemberProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const context = await requireChurchContext();
@@ -95,11 +96,13 @@ export default async function MemberProfilePage({ params }: { params: Promise<{ 
 
   const limitedMemberView = hasLimitedMemberView(context.role);
   const canManage = hasPermission(context.role, "members:manage") && !limitedMemberView;
-  const leaderLoginContext = canManage
+  const canViewLeaderCredentials = context.role === Role.SUPER_ADMIN;
+  const leaderLoginContext = canViewLeaderCredentials
     ? await getMemberLeaderResetContext({
         churchId,
         memberId: member.id,
         memberEmail: member.email,
+        autoProvisionZonePastorLogin: true,
       })
     : null;
   const canViewNotes = hasPermission(context.role, "members:notes") && !limitedMemberView;
@@ -207,7 +210,7 @@ export default async function MemberProfilePage({ params }: { params: Promise<{ 
               <div className="mt-3 space-y-2 text-sm text-slate-600">
                 <p>Email: {leaderLoginContext.user?.email ?? "-"}</p>
                 <p>Role: {leaderLoginContext.user?.role ?? "-"}</p>
-                <p>Default password: Password123!</p>
+                <p>Temporary password is shown once at account creation.</p>
               </div>
             </Card>
           ) : null}

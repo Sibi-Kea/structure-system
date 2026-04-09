@@ -1,7 +1,7 @@
 import { Role } from "@prisma/client";
-import bcrypt from "bcryptjs";
 
 import { db } from "@/lib/db";
+import { generateTemporaryPassword, hashPassword } from "@/lib/password";
 
 const LEADERSHIP_USER_ROLES = new Set<Role>([
   Role.PASTOR,
@@ -33,6 +33,7 @@ type EnsureMemberLeaderUserResult =
       email: string;
       created: boolean;
       createdEmail?: string;
+      createdPassword?: string;
     }
   | { error: string };
 
@@ -89,12 +90,14 @@ export async function ensureMemberLeaderUser(
     };
   }
 
-  const passwordHash = await bcrypt.hash("Password123!", 12);
+  const createdPassword = generateTemporaryPassword();
+  const passwordHash = await hashPassword(createdPassword);
   const createdUser = await db.user.create({
     data: {
       name,
       email: memberEmail,
       passwordHash,
+      passwordChangeRequired: true,
       role: input.role,
       churchId: input.churchId,
       isActive: true,
@@ -107,6 +110,7 @@ export async function ensureMemberLeaderUser(
     email: memberEmail,
     created: true,
     createdEmail: memberEmail,
+    createdPassword,
   };
 }
 
@@ -114,6 +118,7 @@ export async function getMemberLeaderResetContext(input: {
   churchId: string;
   memberId: string;
   memberEmail?: string | null;
+  autoProvisionZonePastorLogin?: boolean;
 }) {
   const candidateEmails = Array.from(
     new Set(
@@ -124,7 +129,7 @@ export async function getMemberLeaderResetContext(input: {
     ),
   );
 
-  const user = candidateEmails.length
+  let user = candidateEmails.length
     ? await db.user.findFirst({
         where: {
           churchId: input.churchId,
@@ -140,17 +145,33 @@ export async function getMemberLeaderResetContext(input: {
       })
     : null;
 
-  const [
-    zonePastorAssignments,
-    structureLeaderAssignments,
-    ledHomecells,
-    ledZones,
-    ledRegions,
-    ledDepartments,
-  ] = await Promise.all([
-    db.zone.count({
-      where: { churchId: input.churchId, pastorMemberId: input.memberId },
-    }),
+  const zonePastorAssignments = await db.zone.count({
+    where: { churchId: input.churchId, pastorMemberId: input.memberId },
+  });
+
+  // Repair legacy/missing login records for member-based zone pastors.
+  if (!user && input.autoProvisionZonePastorLogin && zonePastorAssignments > 0) {
+    const ensuredUser = await ensureMemberLeaderUser({
+      churchId: input.churchId,
+      memberId: input.memberId,
+      role: Role.PASTOR,
+    });
+
+    if (!("error" in ensuredUser)) {
+      user = await db.user.findUnique({
+        where: { id: ensuredUser.userId },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          isActive: true,
+          name: true,
+        },
+      });
+    }
+  }
+
+  const [structureLeaderAssignments, ledHomecells, ledZones, ledRegions, ledDepartments] = await Promise.all([
     user
       ? db.structureLeader.count({
           where: { churchId: input.churchId, userId: user.id },

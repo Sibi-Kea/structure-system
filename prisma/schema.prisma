@@ -59,6 +59,7 @@ model User {
   image                         String?
   phone                         String?
   passwordHash                  String?
+  passwordChangeRequired        Boolean                      @default(false)
   role                          Role
   churchId                      String?
   isActive                      Boolean                      @default(true)

@@ -1,4 +1,4 @@
-import { AuditAction } from "@prisma/client";
+import { AuditAction, Role } from "@prisma/client";
 import { NextResponse } from "next/server";
 
 import { logAudit } from "@/lib/audit";
@@ -68,12 +68,13 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     return NextResponse.json({ message: "Not found" }, { status: 404 });
   }
 
-  const canViewLeaderCredentials = hasPermission(session.user.role, "members:manage");
+  const canViewLeaderCredentials = session.user.role === Role.SUPER_ADMIN;
   const leaderLoginContext = canViewLeaderCredentials
     ? await getMemberLeaderResetContext({
         churchId: session.user.churchId,
         memberId: member.id,
         memberEmail: member.email,
+        autoProvisionZonePastorLogin: true,
       })
     : null;
 
@@ -85,7 +86,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
           hasLogin: Boolean(leaderLoginContext.user),
           email: leaderLoginContext.user?.email ?? null,
           role: leaderLoginContext.user?.role ?? null,
-          defaultPassword: "Password123!",
+          passwordNote: "Temporary password is only shown to Super Admin at account creation.",
         }
       : null,
   });

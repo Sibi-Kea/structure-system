@@ -1,6 +1,18 @@
 import { MembershipStatus } from "@prisma/client";
 import { z } from "zod";
 
+function isAllowedProfilePhotoUrl(value: string | undefined) {
+  if (!value) return true;
+  if (value.startsWith("/")) return true;
+  try {
+    // Accept absolute URLs for Blob/CDN storage in production.
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const memberSchema = z.object({
   firstName: z.string().trim().min(2).max(80),
   lastName: z.string().trim().min(2).max(80),
@@ -28,7 +40,13 @@ export const memberSchema = z.object({
   homecellId: z.string().optional().or(z.literal("")),
   emergencyContactName: z.string().trim().max(120).optional().or(z.literal("")),
   emergencyContactPhone: z.string().trim().max(25).optional().or(z.literal("")),
-  profilePhotoUrl: z.string().url().optional().or(z.literal("")),
+  profilePhotoUrl: z
+    .string()
+    .trim()
+    .max(2048)
+    .optional()
+    .or(z.literal(""))
+    .refine((value) => isAllowedProfilePhotoUrl(value), { message: "Invalid URL" }),
 });
 
 export const pendingMemberRequestSchema = z.object({

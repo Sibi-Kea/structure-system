@@ -10,6 +10,9 @@ import {
   assignMemberStructureAction,
   createHomecellAction,
   createRegionAction,
+  deleteHomecellAction,
+  deleteStructureLeaderAction,
+  deleteZoneAction,
   createZoneAction,
 } from "@/app/dashboard/admin/churches/actions";
 import { Button } from "@/components/ui/button";
@@ -225,6 +228,38 @@ export function StructureForm({
       </Card>
 
       <Card>
+        <CardTitle>Delete Zone</CardTitle>
+        <CardDescription className="mt-1">
+          Delete a zone only after removing homecells, members, and structure assignments.
+        </CardDescription>
+        <form
+          className="mt-4 grid gap-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const formData = new FormData(event.currentTarget);
+            startTransition(async () => {
+              await runAction(() => deleteZoneAction(formData), () => {
+                event.currentTarget.reset();
+                router.refresh();
+              });
+            });
+          }}
+        >
+          <Select name="zoneId" defaultValue="">
+            <option value="">Select zone to delete</option>
+            {zones.map((zone) => (
+              <option key={zone.id} value={zone.id}>
+                {zone.name}
+              </option>
+            ))}
+          </Select>
+          <Button type="submit" variant="outline" disabled={isPending}>
+            {isPending ? "Deleting..." : "Delete Zone"}
+          </Button>
+        </form>
+      </Card>
+
+      <Card>
         <CardTitle>Assign Zone Pastor</CardTitle>
         <CardDescription className="mt-1">
           Set or change a zone pastor using members from the membership list.
@@ -344,6 +379,38 @@ export function StructureForm({
       </Card>
 
       <Card>
+        <CardTitle>Delete Homecell</CardTitle>
+        <CardDescription className="mt-1">
+          Delete a homecell only after moving members and clearing active reporting links.
+        </CardDescription>
+        <form
+          className="mt-4 grid gap-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const formData = new FormData(event.currentTarget);
+            startTransition(async () => {
+              await runAction(() => deleteHomecellAction(formData), () => {
+                event.currentTarget.reset();
+                router.refresh();
+              });
+            });
+          }}
+        >
+          <Select name="homecellId" defaultValue="">
+            <option value="">Select homecell to delete</option>
+            {homecells.map((homecell) => (
+              <option key={homecell.id} value={homecell.id}>
+                {homecell.name}
+              </option>
+            ))}
+          </Select>
+          <Button type="submit" variant="outline" disabled={isPending}>
+            {isPending ? "Deleting..." : "Delete Homecell"}
+          </Button>
+        </form>
+      </Card>
+
+      <Card>
         <CardTitle>Assign Structure Leader</CardTitle>
         <CardDescription className="mt-1">
           Add multiple overseers per structure and connect their own leader branches.
@@ -455,6 +522,38 @@ export function StructureForm({
           </Select>
           <Button type="submit" disabled={isPending}>
             {isPending ? "Saving..." : "Assign Leader"}
+          </Button>
+        </form>
+      </Card>
+
+      <Card>
+        <CardTitle>Delete Structure Leader</CardTitle>
+        <CardDescription className="mt-1">
+          Remove a structure assignment. Child nodes are re-parented to the deleted node&apos;s parent.
+        </CardDescription>
+        <form
+          className="mt-4 grid gap-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const formData = new FormData(event.currentTarget);
+            startTransition(async () => {
+              await runAction(() => deleteStructureLeaderAction(formData), () => {
+                event.currentTarget.reset();
+                router.refresh();
+              });
+            });
+          }}
+        >
+          <Select name="structureLeaderId" defaultValue="">
+            <option value="">Select structure assignment</option>
+            {structureAssignments.map((assignment) => (
+              <option key={assignment.id} value={assignment.id}>
+                {assignment.label}
+              </option>
+            ))}
+          </Select>
+          <Button type="submit" variant="outline" disabled={isPending}>
+            {isPending ? "Deleting..." : "Delete Assignment"}
           </Button>
         </form>
       </Card>

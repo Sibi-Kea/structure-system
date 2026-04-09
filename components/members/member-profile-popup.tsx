@@ -38,7 +38,7 @@ type MemberDetails = {
     hasLogin: boolean;
     email: string | null;
     role: string | null;
-    defaultPassword: string;
+    passwordNote: string;
   } | null;
 };
 
@@ -239,8 +239,8 @@ export function MemberProfilePopup({
                                 <span className="font-medium text-slate-900">Role:</span> {member.leaderLogin.role ?? "-"}
                               </p>
                               <p>
-                                <span className="font-medium text-slate-900">Default password:</span>{" "}
-                                {member.leaderLogin.defaultPassword}
+                                <span className="font-medium text-slate-900">Password:</span>{" "}
+                                {member.leaderLogin.passwordNote}
                               </p>
                             </div>
                           ) : (

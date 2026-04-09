@@ -1,6 +1,6 @@
 "use server";
 
-import { AuditAction, Prisma, Role } from "@prisma/client";
+import { AuditAction, PendingMemberRequestStatus, Prisma, Role } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
@@ -61,6 +61,18 @@ const zonePastorSchema = z.object({
 const deleteChurchSchema = z.object({
   churchId: z.string().cuid(),
   confirmSlug: z.string().trim().min(1).max(80),
+});
+
+const deleteZoneSchema = z.object({
+  zoneId: z.string().cuid(),
+});
+
+const deleteHomecellSchema = z.object({
+  homecellId: z.string().cuid(),
+});
+
+const deleteStructureLeaderSchema = z.object({
+  structureLeaderId: z.string().cuid(),
 });
 
 const STRUCTURE_ASSIGNABLE_ROLES = [
@@ -125,6 +137,7 @@ type HomecellLeaderResolution =
       userId: string | null;
       promotedMemberId: string | null;
       createdEmail?: string;
+      createdPassword?: string;
     }
   | { error: string };
 
@@ -183,6 +196,7 @@ async function resolveHomecellLeaderUser(input: {
     userId: ensuredUser.userId,
     promotedMemberId: member.id,
     createdEmail: ensuredUser.createdEmail,
+    createdPassword: ensuredUser.createdPassword,
   };
 }
 
@@ -612,9 +626,15 @@ export async function createZoneAction(formData: FormData): Promise<ActionResult
     revalidatePath("/dashboard/pastors");
 
     if (pastorLoginResult?.createdEmail) {
+      if (context.role === Role.SUPER_ADMIN && pastorLoginResult.createdPassword) {
+        return {
+          success: true,
+          message: `Zone created. Temporary pastor login ${pastorLoginResult.createdEmail} / ${pastorLoginResult.createdPassword}. Password reset is required at first sign-in.`,
+        };
+      }
       return {
         success: true,
-        message: `Zone created. Pastor login: ${pastorLoginResult.createdEmail} (Password123!).`,
+        message: `Zone created. Pastor login: ${pastorLoginResult.createdEmail}. Temporary password is visible to Super Admin only.`,
       };
     }
 
@@ -654,6 +674,7 @@ export async function assignZonePastorAction(formData: FormData): Promise<Action
         email: string;
         created: boolean;
         createdEmail?: string;
+        createdPassword?: string;
       }
     | null = null;
 
@@ -714,9 +735,15 @@ export async function assignZonePastorAction(formData: FormData): Promise<Action
   revalidatePath("/dashboard/pastors");
 
   if (pastorLoginResult?.createdEmail) {
+    if (context.role === Role.SUPER_ADMIN && pastorLoginResult.createdPassword) {
+      return {
+        success: true,
+        message: `Zone pastor assigned. Temporary login ${pastorLoginResult.createdEmail} / ${pastorLoginResult.createdPassword}. Password reset is required at first sign-in.`,
+      };
+    }
     return {
       success: true,
-      message: `Zone pastor assigned. Login: ${pastorLoginResult.createdEmail} (Password123!).`,
+      message: `Zone pastor assigned. Login: ${pastorLoginResult.createdEmail}. Temporary password is visible to Super Admin only.`,
     };
   }
 
@@ -834,9 +861,15 @@ export async function createHomecellAction(formData: FormData): Promise<ActionRe
     revalidatePath("/dashboard/hierarchy");
     revalidatePath("/dashboard/members");
     if (leaderResult.createdEmail) {
+      if (context.role === Role.SUPER_ADMIN && leaderResult.createdPassword) {
+        return {
+          success: true,
+          message: `Homecell created. Temporary leader login ${leaderResult.createdEmail} / ${leaderResult.createdPassword}. Password reset is required at first sign-in.`,
+        };
+      }
       return {
         success: true,
-        message: `Homecell created. Leader login: ${leaderResult.createdEmail} (Password123!).`,
+        message: `Homecell created. Leader login: ${leaderResult.createdEmail}. Temporary password is visible to Super Admin only.`,
       };
     }
     return { success: true, message: "Homecell created." };
@@ -1117,4 +1150,178 @@ export async function assignStructureLeaderAction(formData: FormData): Promise<A
     }
     return { success: false, message: "Unable to assign structure leader. Please try again." };
   }
+}
+
+export async function deleteStructureLeaderAction(formData: FormData): Promise<ActionResult> {
+  const context = await requireChurchContext();
+  if (!hasPermission(context.role, "members:manage")) {
+    return forbiddenResult();
+  }
+  const churchId = assertChurch(context.churchId);
+
+  const parsed = deleteStructureLeaderSchema.safeParse(Object.fromEntries(formData.entries()));
+  if (!parsed.success) {
+    return { success: false, message: "Invalid structure delete payload." };
+  }
+
+  const node = await db.structureLeader.findFirst({
+    where: { id: parsed.data.structureLeaderId, churchId },
+    select: { id: true, parentLeaderId: true },
+  });
+  if (!node) {
+    return { success: false, message: "Structure leader assignment not found." };
+  }
+
+  await db.$transaction([
+    db.structureLeader.updateMany({
+      where: { churchId, parentLeaderId: node.id },
+      data: { parentLeaderId: node.parentLeaderId },
+    }),
+    db.structureLeader.delete({
+      where: { id: node.id },
+    }),
+  ]);
+
+  await logAudit({
+    churchId,
+    actorUserId: context.userId,
+    actorRole: context.role,
+    action: AuditAction.DELETE,
+    entity: "StructureLeader",
+    entityId: node.id,
+    payload: { parentLeaderId: node.parentLeaderId },
+  });
+
+  revalidatePath("/dashboard/admin/churches");
+  revalidatePath("/dashboard/hierarchy");
+  return { success: true, message: "Structure leader deleted." };
+}
+
+export async function deleteZoneAction(formData: FormData): Promise<ActionResult> {
+  const context = await requireChurchContext();
+  if (!hasPermission(context.role, "members:manage")) {
+    return forbiddenResult();
+  }
+  const churchId = assertChurch(context.churchId);
+
+  const parsed = deleteZoneSchema.safeParse(Object.fromEntries(formData.entries()));
+  if (!parsed.success) {
+    return { success: false, message: "Invalid zone delete payload." };
+  }
+
+  const zone = await db.zone.findFirst({
+    where: { id: parsed.data.zoneId, churchId },
+    select: { id: true, name: true },
+  });
+  if (!zone) {
+    return { success: false, message: "Zone not found." };
+  }
+
+  const [homecellsCount, membersCount, structureAssignmentsCount] = await Promise.all([
+    db.homecell.count({
+      where: { churchId, zoneId: zone.id },
+    }),
+    db.member.count({
+      where: { churchId, zoneId: zone.id, isDeleted: false },
+    }),
+    db.structureLeader.count({
+      where: { churchId, zoneId: zone.id },
+    }),
+  ]);
+
+  if (homecellsCount > 0 || membersCount > 0 || structureAssignmentsCount > 0) {
+    return {
+      success: false,
+      message:
+        "Cannot delete zone while it still has homecells, active members, or structure assignments. Reassign first.",
+    };
+  }
+
+  await db.zone.delete({
+    where: { id: zone.id },
+  });
+
+  await logAudit({
+    churchId,
+    actorUserId: context.userId,
+    actorRole: context.role,
+    action: AuditAction.DELETE,
+    entity: "Zone",
+    entityId: zone.id,
+    payload: { zoneName: zone.name },
+  });
+
+  revalidatePath("/dashboard/admin/churches");
+  revalidatePath("/dashboard/hierarchy");
+  revalidatePath("/dashboard/pastors");
+  revalidatePath("/dashboard/members");
+  return { success: true, message: `Zone ${zone.name} deleted.` };
+}
+
+export async function deleteHomecellAction(formData: FormData): Promise<ActionResult> {
+  const context = await requireChurchContext();
+  if (!hasPermission(context.role, "members:manage")) {
+    return forbiddenResult();
+  }
+  const churchId = assertChurch(context.churchId);
+
+  const parsed = deleteHomecellSchema.safeParse(Object.fromEntries(formData.entries()));
+  if (!parsed.success) {
+    return { success: false, message: "Invalid homecell delete payload." };
+  }
+
+  const homecell = await db.homecell.findFirst({
+    where: { id: parsed.data.homecellId, churchId },
+    select: { id: true, name: true },
+  });
+  if (!homecell) {
+    return { success: false, message: "Homecell not found." };
+  }
+
+  const [membersCount, pendingRequestsCount, reportsCount, structureAssignmentsCount] = await Promise.all([
+    db.member.count({
+      where: { churchId, homecellId: homecell.id, isDeleted: false },
+    }),
+    db.pendingMemberRequest.count({
+      where: {
+        churchId,
+        homecellId: homecell.id,
+        status: PendingMemberRequestStatus.PENDING,
+      },
+    }),
+    db.homecellReport.count({
+      where: { churchId, homecellId: homecell.id },
+    }),
+    db.structureLeader.count({
+      where: { churchId, homecellId: homecell.id },
+    }),
+  ]);
+
+  if (membersCount > 0 || pendingRequestsCount > 0 || reportsCount > 0 || structureAssignmentsCount > 0) {
+    return {
+      success: false,
+      message:
+        "Cannot delete homecell while it has members, pending requests, reports, or structure assignments. Reassign first.",
+    };
+  }
+
+  await db.homecell.delete({
+    where: { id: homecell.id },
+  });
+
+  await logAudit({
+    churchId,
+    actorUserId: context.userId,
+    actorRole: context.role,
+    action: AuditAction.DELETE,
+    entity: "Homecell",
+    entityId: homecell.id,
+    payload: { homecellName: homecell.name },
+  });
+
+  revalidatePath("/dashboard/admin/churches");
+  revalidatePath("/dashboard/hierarchy");
+  revalidatePath("/dashboard/members");
+  revalidatePath("/dashboard/reporting");
+  return { success: true, message: `Homecell ${homecell.name} deleted.` };
 }

@@ -145,9 +145,15 @@ export async function POST(request: Request) {
     revalidatePath("/dashboard/settings");
 
     if (pastorLoginResult.createdEmail) {
+      if (session.user.role === Role.SUPER_ADMIN && pastorLoginResult.createdPassword) {
+        return NextResponse.json({
+          success: true,
+          message: `${member.firstName} ${member.lastName} assigned to ${zone.name}. Temporary login ${pastorLoginResult.createdEmail} / ${pastorLoginResult.createdPassword}. Password reset is required at first sign-in.`,
+        });
+      }
       return NextResponse.json({
         success: true,
-        message: `${member.firstName} ${member.lastName} assigned to ${zone.name}. Login: ${pastorLoginResult.createdEmail} (Password123!).`,
+        message: `${member.firstName} ${member.lastName} assigned to ${zone.name}. Login: ${pastorLoginResult.createdEmail}. Temporary password is visible to Super Admin only.`,
       });
     }
 
@@ -206,9 +212,15 @@ export async function POST(request: Request) {
     revalidatePath("/dashboard/settings");
 
     if (pastorLoginResult.createdEmail) {
+      if (session.user.role === Role.SUPER_ADMIN && pastorLoginResult.createdPassword) {
+        return NextResponse.json({
+          success: true,
+          message: `Zone ${zone.name} created and pastor assigned. Temporary login ${pastorLoginResult.createdEmail} / ${pastorLoginResult.createdPassword}. Password reset is required at first sign-in.`,
+        });
+      }
       return NextResponse.json({
         success: true,
-        message: `Zone ${zone.name} created and pastor assigned. Login: ${pastorLoginResult.createdEmail} (Password123!).`,
+        message: `Zone ${zone.name} created and pastor assigned. Login: ${pastorLoginResult.createdEmail}. Temporary password is visible to Super Admin only.`,
       });
     }
 

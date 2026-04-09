@@ -21,6 +21,7 @@ export async function proxy(request: NextRequest) {
   const isPublicPath = PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
   const token = await getToken({ req: request, secret: authSecret });
   const roleFromToken = token?.role;
+  const passwordChangeRequired = token?.passwordChangeRequired === true;
   const hasValidRole =
     typeof roleFromToken === "string" &&
     Object.values(Role).includes(roleFromToken as Role);
@@ -38,6 +39,15 @@ export async function proxy(request: NextRequest) {
 
   const role = roleFromToken as Role;
 
+  if (passwordChangeRequired) {
+    const onResetRoute = pathname === "/reset-password" || pathname.startsWith("/reset-password/");
+    if (!onResetRoute) {
+      return NextResponse.redirect(new URL("/reset-password", request.url));
+    }
+  } else if (pathname === "/reset-password" || pathname.startsWith("/reset-password/")) {
+    return NextResponse.redirect(new URL("/dashboard", request.url));
+  }
+
   if (role === Role.SUPER_ADMIN) {
     return NextResponse.next();
   }
@@ -53,5 +63,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/login", "/dashboard/:path*"],
+  matcher: ["/", "/login", "/reset-password", "/dashboard/:path*"],
 };

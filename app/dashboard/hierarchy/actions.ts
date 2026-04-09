@@ -1,12 +1,12 @@
 "use server";
 
 import { AuditAction, Prisma, Role } from "@prisma/client";
-import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { logAudit } from "@/lib/audit";
 import { db } from "@/lib/db";
+import { ensureMemberLeaderUser } from "@/lib/leader-account";
 import { hasPermission } from "@/lib/rbac";
 import { assertChurch, requireChurchContext } from "@/lib/tenant";
 
@@ -198,47 +198,22 @@ async function resolveAssigneeUser(params: {
 
   const member = await db.member.findFirst({
     where: { id: memberId ?? "", churchId, isDeleted: false },
-    select: { id: true, firstName: true, lastName: true, email: true },
+    select: { id: true },
   });
   if (!member) return { error: "Selected member is invalid." as const };
 
-  const generatedEmail = `member.${member.id.slice(-10)}@churchflow.local`;
-  const memberEmail = (member.email?.trim().toLowerCase() || generatedEmail).toLowerCase();
-
-  const existingUser = await db.user.findUnique({
-    where: { email: memberEmail },
-    select: { id: true, churchId: true },
+  const ensuredUser = await ensureMemberLeaderUser({
+    churchId,
+    memberId: member.id,
+    role,
   });
-
-  if (existingUser && existingUser.churchId && existingUser.churchId !== churchId) {
-    return { error: "Member email is linked to another church user." as const };
-  }
-
-  if (existingUser) {
-    await db.user.update({
-      where: { id: existingUser.id },
-      data: { churchId, role, isActive: true },
-    });
-    return { userId: existingUser.id };
-  }
-
-  const passwordHash = await bcrypt.hash("Password123!", 12);
-  const createdUser = await db.user.create({
-    data: {
-      name: `${member.firstName} ${member.lastName}`.trim(),
-      email: memberEmail,
-      passwordHash,
-      role,
-      churchId,
-      isActive: true,
-    },
-    select: { id: true },
-  });
+  if ("error" in ensuredUser) return { error: ensuredUser.error };
 
   return {
-    userId: createdUser.id,
-    createdFromMember: true,
-    createdEmail: memberEmail,
+    userId: ensuredUser.userId,
+    createdFromMember: ensuredUser.created,
+    createdEmail: ensuredUser.createdEmail,
+    createdPassword: ensuredUser.createdPassword,
   };
 }
 
@@ -390,9 +365,15 @@ export async function addHierarchyNodeAction(formData: FormData): Promise<Action
     revalidatePath("/dashboard/admin/churches");
 
     if (assigneeResult.createdFromMember) {
+      if (context.role === Role.SUPER_ADMIN && assigneeResult.createdEmail && assigneeResult.createdPassword) {
+        return {
+          success: true,
+          message: `Node added. Temporary login ${assigneeResult.createdEmail} / ${assigneeResult.createdPassword}. Password reset is required at first sign-in.`,
+        };
+      }
       return {
         success: true,
-        message: `Node added. Member promoted with login ${assigneeResult.createdEmail} (Password123!).`,
+        message: `Node added. Member promoted with login ${assigneeResult.createdEmail}. Temporary password is visible to Super Admin only.`,
       };
     }
     return { success: true, message: "Hierarchy node added." };
@@ -479,9 +460,15 @@ export async function replaceHierarchyLeaderAction(formData: FormData): Promise<
   revalidatePath("/dashboard/admin/churches");
 
   if (assigneeResult.createdFromMember) {
+    if (context.role === Role.SUPER_ADMIN && assigneeResult.createdEmail && assigneeResult.createdPassword) {
+      return {
+        success: true,
+        message: `Leader replaced. Temporary login ${assigneeResult.createdEmail} / ${assigneeResult.createdPassword}. Password reset is required at first sign-in.`,
+      };
+    }
     return {
       success: true,
-      message: `Leader replaced. Member promoted with login ${assigneeResult.createdEmail} (Password123!).`,
+      message: `Leader replaced. Member promoted with login ${assigneeResult.createdEmail}. Temporary password is visible to Super Admin only.`,
     };
   }
   return { success: true, message: "Leader replaced successfully." };

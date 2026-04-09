@@ -63,6 +63,7 @@ export const authOptions: NextAuthOptions = {
           name: user.name,
           role: user.role,
           churchId: user.churchId,
+          passwordChangeRequired: user.passwordChangeRequired,
         };
       },
     }),
@@ -72,20 +73,24 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.role = (user as { role?: Role }).role;
         token.churchId = (user as { churchId?: string | null }).churchId ?? null;
+        token.passwordChangeRequired =
+          (user as { passwordChangeRequired?: boolean }).passwordChangeRequired === true;
       }
 
       if (token.sub) {
         const dbUser = await db.user.findUnique({
           where: { id: token.sub },
-          select: { role: true, churchId: true, name: true, email: true },
+          select: { role: true, churchId: true, name: true, email: true, passwordChangeRequired: true },
         });
         if (dbUser) {
           token.role = dbUser.role;
           token.churchId = dbUser.churchId;
           token.name = dbUser.name;
           token.email = dbUser.email;
+          token.passwordChangeRequired = dbUser.passwordChangeRequired;
         } else {
           token.churchId = null;
+          token.passwordChangeRequired = false;
         }
       }
 
@@ -96,6 +101,7 @@ export const authOptions: NextAuthOptions = {
         session.user.id = token.sub ?? "";
         session.user.role = (token.role as Role) ?? Role.HOMECELL_LEADER;
         session.user.churchId = (token.churchId as string | null) ?? null;
+        session.user.passwordChangeRequired = token.passwordChangeRequired === true;
       }
       return session;
     },
